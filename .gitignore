@@ -1,0 +1,8 @@
+# Chaves privadas: nunca versionar
+*.pem
+*.ppk
+*.key
+.env
+
+# Gerado pelo Spark
+SPARK/apps/danylist.csv

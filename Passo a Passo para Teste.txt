@@ -1,0 +1,201 @@
+=====================================================================
+ ROTEIRO DE TESTE - Spark + Elasticsearch + Painel (deny list)
+=====================================================================
+Fluxo: Kibana (logs falsos) -> Elasticsearch -> Spark compara com a
+lista de IPs (logs-ips.json) -> incidentes -> Painel web.
+
+ORDEM OBRIGATORIA:
+  Elasticsearch -> indices -> Spark -> Painel -> Detector -> Testes
+
+---------------------------------------------------------------------
+ PASSO 0 - (so Linux) preparar o sistema
+---------------------------------------------------------------------
+sudo sysctl -w vm.max_map_count=262144
+chmod -R 777 APP-CORE/dados
+
+(No Windows/Mac nao precisa.)
+
+---------------------------------------------------------------------
+ PASSO 1 - Subir Elasticsearch + Kibana
+---------------------------------------------------------------------
+cd ELASTICSEARCH
+docker compose up -d
+docker compose ps
+
+Espere ~60 s ate o "elasticsearch" ficar (healthy).
+Teste:  curl http://localhost:9200
+Kibana: http://localhost:5601
+
+---------------------------------------------------------------------
+ PASSO 2 - Criar os indices (Kibana > Dev Tools)
+---------------------------------------------------------------------
+Abra http://localhost:5601 > menu > Dev Tools.
+Cole um bloco por vez, deixe o cursor dentro dele e clique no ▶.
+Confirme "acknowledged": true. So precisa fazer 1 vez.
+
+PUT logs-firewall
+{
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "message": { "type": "text" }
+    }
+  }
+}
+
+PUT incidentes
+{
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "src_ip": { "type": "ip" },
+      "dest_ip": { "type": "keyword" },
+      "action": { "type": "keyword" },
+      "message": { "type": "text" }
+    }
+  }
+}
+
+---------------------------------------------------------------------
+ PASSO 3 - Subir o Spark (1 master + 3 workers)
+---------------------------------------------------------------------
+cd SPARK
+docker compose up -d --build
+docker compose ps
+
+Confira 3 workers em http://localhost:8080
+
+---------------------------------------------------------------------
+ PASSO 4 - Subir o Painel
+---------------------------------------------------------------------
+cd APP-CORE
+docker compose up -d
+
+Abra http://localhost
+(Precisa vir DEPOIS do passo 1: usa a rede do Elasticsearch.)
+
+---------------------------------------------------------------------
+ PASSO 5 - Rodar o detector (deixe este terminal aberto)
+---------------------------------------------------------------------
+cd SPARK
+docker compose exec spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark-apps/deny_list.py
+
+Mostra: "Deny List iniciado" e "sem novos matches" a cada 2 s.
+Parar: Ctrl+C
+
+---------------------------------------------------------------------
+ PASSO 6 - Testes
+---------------------------------------------------------------------
+IMPORTANTE: use sempre data real em "@timestamp".
+NUNCA use "now" (o Elasticsearch recusa: erro 400).
+Cada POST deve responder  "result": "created".
+
+--- Teste A: IP que ja esta na lista (deny) ---------------------------
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:00:00Z",
+  "message": "timestamp=2026-10-07T14:00:00Z hostname=fw-01 src_ip=203.0.113.10 dest_ip=10.0.1.20 src_port=54321 dest_port=22 proto=tcp action=deny"
+}
+Esperado: [ALERTA] no terminal do Spark + linha VERMELHA (deny) no painel.
+
+--- Teste B: outro IP da lista (deny) ---------------------------------
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:00:10Z",
+  "message": "timestamp=2026-10-07T14:00:10Z hostname=fw-01 src_ip=198.51.100.25 dest_ip=10.0.1.8 src_port=44112 dest_port=3389 proto=tcp action=deny"
+}
+Esperado: novo [ALERTA] + linha vermelha.
+
+--- Teste C: IP da lista com allow (o firewall deixou passar) ---------
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:00:15Z",
+  "message": "timestamp=2026-10-07T14:00:15Z hostname=fw-01 src_ip=192.0.2.50 dest_ip=10.0.1.20 src_port=51240 dest_port=443 proto=tcp action=allow"
+}
+Esperado: linha VERDE (allow) no painel. E o caso mais grave.
+
+--- Teste D: IP limpo (NAO deve gerar incidente) ----------------------
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:00:20Z",
+  "message": "timestamp=2026-10-07T14:00:20Z hostname=fw-01 src_ip=10.0.0.15 dest_ip=8.8.8.8 src_port=53100 dest_port=53 proto=udp action=allow"
+}
+Esperado: NADA no painel (IP fora da lista). Isso esta correto.
+
+--- Teste E: adicionar um IP novo pelo Painel -------------------------
+1) No painel (http://localhost), em "IPs monitorados", digite
+   10.100.10.10 e clique em Adicionar.
+   Terminal do Spark mostra: [NOVO IP MONITORADO] 10.100.10.10
+2) Envie o log no Kibana:
+
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:01:00Z",
+  "message": "timestamp=2026-10-07T14:01:00Z hostname=fw-01 src_ip=10.100.10.10 dest_ip=10.0.1.20 src_port=51234 dest_port=22 proto=tcp action=deny"
+}
+Esperado: [ALERTA] + linha vermelha para 10.100.10.10.
+
+--- Teste F: o mesmo IP com deny e allow ------------------------------
+(adicione 45.67.100.25 no painel antes)
+
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:02:00Z",
+  "message": "timestamp=2026-10-07T14:02:00Z hostname=fw-01 src_ip=45.67.100.25 dest_ip=10.0.1.20 src_port=51234 dest_port=22 proto=tcp action=deny"
+}
+
+POST logs-firewall/_doc
+{
+  "@timestamp": "2026-10-07T14:02:05Z",
+  "message": "timestamp=2026-10-07T14:02:05Z hostname=fw-01 src_ip=45.67.100.25 dest_ip=10.0.1.20 src_port=51240 dest_port=443 proto=tcp action=allow"
+}
+Esperado: 1 linha vermelha (deny) e 1 verde (allow).
+
+--- Teste G: editar e remover IP no Painel ----------------------------
+Clique em "Editar" (troca o IP na linha) ou "Remover" (pede
+confirmacao). Terminal mostra [IP REMOVIDO] ao remover.
+
+---------------------------------------------------------------------
+ CONFERIR PELO TERMINAL (opcional)
+---------------------------------------------------------------------
+curl "http://localhost:9200/logs-firewall/_count"
+curl "http://localhost:9200/incidentes/_count"
+curl "http://localhost:9200/incidentes/_search?pretty"
+curl "http://localhost:9200/_cat/indices?v"
+type APP-CORE\dados\logs-ips.json        (Windows)
+cat APP-CORE/dados/logs-ips.json         (Linux/Mac)
+
+---------------------------------------------------------------------
+ LIMPAR PARA REPETIR O TESTE DO ZERO (Kibana > Dev Tools)
+---------------------------------------------------------------------
+DELETE incidentes
+DELETE logs-firewall
+(Depois recrie os dois indices do PASSO 2.)
+
+Obs: apagar so "incidentes" nao basta: o Spark relê os logs e recria
+os incidentes. Para zerar de verdade, apague os dois e reinicie o
+detector (Ctrl+C e rode o PASSO 5 de novo).
+
+---------------------------------------------------------------------
+ PARAR TUDO
+---------------------------------------------------------------------
+cd APP-CORE       && docker compose down
+cd SPARK          && docker compose down
+cd ELASTICSEARCH  && docker compose down
+(use "down -v" no ELASTICSEARCH para apagar tambem os dados)
+
+---------------------------------------------------------------------
+ PROBLEMAS COMUNS
+---------------------------------------------------------------------
+- Spark mostra 404 .............. faltou criar os indices (PASSO 2)
+- APP-CORE: rede "elasticsearch_elastic-net" nao encontrada
+      .......................... suba o Elasticsearch antes (PASSO 1)
+      e nao renomeie a pasta ELASTICSEARCH
+- Kibana: erro 400 em @timestamp . voce usou "now"; use data ISO
+- "Erro ao salvar (403)" no painel ... permissao da pasta dados (Linux):
+      chmod -R 777 APP-CORE/dados
+- Alterou deny_list.py ........... pare (Ctrl+C) e rode o PASSO 5 de novo
+- Alterou index.html ............. so dar F5 no navegador
+- Nao aparece incidente .......... confira o IP em "IPs monitorados"
+      e se o log foi criado: curl "http://localhost:9200/logs-firewall/_count"
+=====================================================================

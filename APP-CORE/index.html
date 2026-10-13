@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>Painel de Incidentes</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z'/%3E%3C/svg%3E">
+    <style>
+        /* ============================================================
+           1. DESIGN TOKENS — cores, espaçamento, raio, sombra
+           ============================================================ */
+        :root {
+            --bg: #f5f6fa;          --surface: #ffffff;     --surface-2: #f0f2f8;
+            --border: #e2e6f0;      --border-strong: #cfd5e4;
+            --text: #141a2b;        --muted: #5b6680;       --faint: #8a94ab;
+            --primary: #4f46e5;     --primary-hover: #4338ca; --primary-soft: #eceeff;
+            --danger: #c81e2d;      --danger-soft: #fde8ea;
+            --ok: #15803d;          --ok-soft: #e1f5e8;
+            --neutral-soft: #eceff6;
+            --side-bg: #0e1323;     --side-text: #aeb8d4;   --side-active: rgba(255,255,255,.09);
+            --shadow: 0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+            --shadow-lg: 0 20px 50px rgba(16,24,40,.25);
+            --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+            --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0a0e1a;      --surface: #121827;     --surface-2: #19213a;
+                --border: #232d47;  --border-strong: #33405f;
+                --text: #e9edf7;    --muted: #98a4c0;       --faint: #6f7b99;
+                --primary: #6366f1; --primary-hover: #7679f5; --primary-soft: #1f2450;
+                --danger: #f87171;  --danger-soft: #3a1a21;
+                --ok: #4ade80;      --ok-soft: #12301f;
+                --neutral-soft: #1c2540;
+                --side-bg: #070a14;
+                --shadow: 0 1px 2px rgba(0,0,0,.4);
+                --shadow-lg: 0 20px 50px rgba(0,0,0,.6);
+            }
+        }
+
+        /* ============================================================
+           2. BASE
+           ============================================================ */
+        *, *::before, *::after { box-sizing: border-box; }
+        html { color-scheme: light dark; }
+        body { margin: 0; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5;
+               font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+        h1, h2, p { margin: 0; }
+        button, input, select { font: inherit; color: inherit; }
+        code { font-family: var(--mono); }
+        [hidden] { display: none !important; }
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+        .icon { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2;
+                stroke-linecap: round; stroke-linejoin: round; }
+
+        /* ============================================================
+           3. LAYOUT — menu lateral + conteúdo
+           ============================================================ */
+        .app { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+
+        .sidebar { background: var(--side-bg); color: var(--side-text); padding: 22px 14px;
+                   display: flex; flex-direction: column; gap: 28px; position: sticky; top: 0; height: 100vh; }
+        .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px; color: #fff; }
+        .brand-logo { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center;
+                      background: linear-gradient(135deg, #6366f1, #8b5cf6); }
+        .brand-logo .icon { width: 22px; height: 22px; }
+        .brand strong { display: block; font-size: 15px; line-height: 1.2; }
+        .brand small { color: var(--side-text); font-size: 12px; }
+
+        .nav { display: flex; flex-direction: column; gap: 4px; }
+        .nav-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #6c7796; padding: 0 12px 6px; }
+        .nav a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: var(--r-sm);
+                 color: inherit; text-decoration: none; font-weight: 500; transition: background .15s, color .15s; }
+        .nav a:hover { background: rgba(255,255,255,.05); color: #fff; }
+        .nav a[aria-current="page"] { background: var(--side-active); color: #fff; box-shadow: inset 3px 0 0 #818cf8; }
+        .side-foot { margin-top: auto; padding: 12px; border-radius: var(--r-md); background: rgba(255,255,255,.05);
+                     font-size: 12px; line-height: 1.5; }
+        .side-foot b { color: #fff; font-weight: 600; }
+
+        .content { padding: 32px clamp(16px, 3vw, 40px) 64px; max-width: 1280px; width: 100%; margin: 0 auto; }
+        .page { display: grid; gap: 24px; }
+        .page-head { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; justify-content: space-between; }
+        .page-head h1 { font-size: 24px; letter-spacing: -.02em; line-height: 1.25; }
+        .page-head p { color: var(--muted); margin-top: 4px; max-width: 62ch; }
+
+        /* indicador "ao vivo" */
+        .live { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+                background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; color: var(--muted); box-shadow: var(--shadow); }
+        .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: pulso 2s infinite; }
+        .live.off i { background: var(--danger); animation: none; }
+        @keyframes pulso { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+        /* ============================================================
+           4. CARTÕES DE RESUMO
+           ============================================================ */
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+        .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+                padding: 18px 20px; display: flex; gap: 16px; align-items: center; box-shadow: var(--shadow); }
+        .stat-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex: none; }
+        .stat-icon .icon { width: 22px; height: 22px; }
+        .stat-icon.azul { background: var(--primary-soft); color: var(--primary); }
+        .stat-icon.ambar { background: #fef3c7; color: #b45309; }
+        .stat-icon.verm { background: var(--danger-soft); color: var(--danger); }
+        @media (prefers-color-scheme: dark) { .stat-icon.ambar { background: #33270d; color: #fbbf24; } }
+        .stat span { color: var(--muted); font-size: 13px; }
+        .stat strong { display: block; font-size: 28px; line-height: 1.15; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+        /* ============================================================
+           5. CARDS, TABELAS, BADGES
+           ============================================================ */
+        .grid-painel { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+        @media (min-width: 1360px) { .grid-painel { grid-template-columns: 360px minmax(0, 1fr); } }
+
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow); min-width: 0; }
+        .card-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
+        .card-head h2 { font-size: 16px; letter-spacing: -.01em; }
+        .card-head p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+        .card-body { padding: 16px 20px 20px; display: grid; gap: 16px; }
+        .pill { display: inline-block; min-width: 24px; padding: 1px 8px; margin-left: 6px; border-radius: 999px; text-align: center;
+                background: var(--neutral-soft); color: var(--muted); font-size: 12px; font-weight: 600; vertical-align: 2px; }
+
+        .table-wrap { overflow: auto; max-height: 460px; border-top: 1px solid var(--border); }
+        .table-wrap.sem-topo { border-top: 0; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 16px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border); }
+        th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--muted); font-size: 12px;
+             font-weight: 600; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+        tbody tr { transition: background .12s; }
+        tbody tr:hover { background: var(--surface-2); }
+        tbody tr:last-child td { border-bottom: 0; }
+        tr.em-edicao { background: var(--primary-soft); }
+        td.num { color: var(--faint); width: 44px; font-variant-numeric: tabular-nums; }
+        td.msg { color: var(--muted); max-width: 0; width: 35%; min-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+        td.fluxo { white-space: nowrap; }
+        .seta { color: var(--faint); margin: 0 2px; }
+        td.quando { white-space: nowrap; color: var(--muted); }
+        td.acoes { width: 1%; white-space: nowrap; text-align: right; }
+
+        .ip { font-family: var(--mono); font-size: 13px; padding: 3px 8px; border-radius: 6px; background: var(--neutral-soft); color: var(--text); }
+        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+        .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .badge.deny { background: var(--danger-soft); color: var(--danger); }
+        .badge.allow { background: var(--ok-soft); color: var(--ok); }
+        .badge.outro { background: var(--neutral-soft); color: var(--muted); }
+
+        /* estados: vazio, erro, carregando */
+        .estado { padding: 44px 20px; text-align: center; color: var(--muted); }
+        .estado .icone { width: 48px; height: 48px; margin: 0 auto 12px; border-radius: 50%; display: grid; place-items: center;
+                         background: var(--neutral-soft); color: var(--faint); }
+        .estado .icone .icon { width: 24px; height: 24px; }
+        .estado.erro .icone { background: var(--danger-soft); color: var(--danger); }
+        .estado strong { display: block; color: var(--text); font-size: 15px; margin-bottom: 2px; }
+        .estado button { margin-top: 14px; }
+        .skel td > span { display: block; height: 14px; border-radius: 6px; width: 70%;
+                          background: linear-gradient(90deg, var(--surface-2), var(--border), var(--surface-2)); background-size: 200% 100%;
+                          animation: brilho 1.3s infinite linear; }
+        @keyframes brilho { to { background-position: -200% 0; } }
+
+        /* ============================================================
+           6. FORMULÁRIOS E BOTÕES
+           ============================================================ */
+        .campo { display: grid; gap: 6px; min-width: 0; }
+        .campo label { font-weight: 600; font-size: 13px; }
+        .campo .dica { color: var(--faint); font-size: 12px; }
+        .campo .erro-msg { color: var(--danger); font-size: 12.5px; font-weight: 500; min-height: 0; }
+        .campo .erro-msg:empty { display: none; }
+        .input-icon { position: relative; }
+        .input-icon .icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+        .input-icon input { padding-left: 38px; }
+
+        input, select { width: 100%; height: 40px; padding: 0 12px; border-radius: var(--r-sm); background: var(--surface);
+                        border: 1px solid var(--border-strong); transition: border-color .15s, box-shadow .15s; }
+        input::placeholder { color: var(--faint); }
+        input:hover, select:hover { border-color: var(--faint); }
+        input:focus, select:focus { outline: 0; border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent); }
+        input[aria-invalid="true"] { border-color: var(--danger); }
+        input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 25%, transparent); }
+        input.mono { font-family: var(--mono); }
+        td input { height: 34px; max-width: 200px; }
+
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border: 1px solid transparent;
+               border-radius: var(--r-sm); font-weight: 600; cursor: pointer; white-space: nowrap; background: var(--primary); color: #fff;
+               transition: background .15s, border-color .15s, transform .05s; }
+        .btn:hover { background: var(--primary-hover); }
+        .btn:active { transform: translateY(1px); }
+        .btn:disabled { opacity: .55; cursor: progress; }
+        .btn.sec { background: var(--surface); color: var(--text); border-color: var(--border-strong); }
+        .btn.sec:hover { background: var(--surface-2); }
+        .btn.perigo { background: var(--danger); color: #fff; }
+        .btn.perigo:hover { filter: brightness(.92); }
+        .btn.peq { height: 34px; padding: 0 12px; font-size: 13px; }
+        .btn-icone { width: 34px; height: 34px; display: inline-grid; place-items: center; border-radius: var(--r-sm); border: 0;
+                     background: transparent; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+        .btn-icone:hover { background: var(--neutral-soft); color: var(--text); }
+        .btn-icone.perigo:hover { background: var(--danger-soft); color: var(--danger); }
+        .btn-icone.ok { color: var(--ok); }
+        .btn-icone.ok:hover { background: var(--ok-soft); color: var(--ok); }
+        .linha-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: end; }
+        .linha-form .btn { align-self: end; }
+
+        /* formulário do Datasource */
+        .form-log { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; }
+        .form-log .c-ip { grid-column: span 3; } .form-log .c-acao { grid-column: span 2; } .form-log .c-msg { grid-column: span 7; }
+        .form-log .botoes { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
+        @media (max-width: 860px) { .form-log .c-ip, .form-log .c-acao, .form-log .c-msg { grid-column: 1 / -1; } }
+        .card.editando { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+        .aviso-edicao { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--r-sm);
+                        background: var(--primary-soft); color: var(--primary); font-weight: 600; font-size: 13px; }
+
+        /* barra de ferramentas e filtros */
+        .barra { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; }
+        .barra .input-icon { flex: 1 1 220px; max-width: 340px; }
+        .seg { display: inline-flex; padding: 3px; gap: 2px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; }
+        .seg button { height: 30px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+        .seg button:hover { color: var(--text); }
+        .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+        .contagem { color: var(--muted); font-size: 13px; }
+
+        /* ============================================================
+           7. DIÁLOGO DE CONFIRMAÇÃO E AVISOS (TOAST)
+           ============================================================ */
+        dialog { border: 1px solid var(--border); border-radius: var(--r-lg); padding: 0; width: min(420px, calc(100vw - 32px));
+                 background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
+        dialog::backdrop { background: rgba(8, 12, 24, .55); backdrop-filter: blur(2px); }
+        dialog form { padding: 24px; display: grid; gap: 16px; }
+        .dlg-topo { display: flex; gap: 14px; }
+        .dlg-icone { width: 42px; height: 42px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--danger-soft); color: var(--danger); }
+        .dlg-topo h2 { font-size: 17px; }
+        .dlg-topo p { color: var(--muted); margin-top: 4px; }
+        .dlg-botoes { display: flex; gap: 8px; justify-content: flex-end; }
+
+        #toast { position: fixed; right: 24px; bottom: 24px; z-index: 50; display: flex; align-items: center; gap: 10px; max-width: min(380px, calc(100vw - 32px));
+                 padding: 12px 16px; border-radius: var(--r-md); background: var(--text); color: var(--bg); font-weight: 500; box-shadow: var(--shadow-lg);
+                 transform: translateY(16px); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+        #toast.show { opacity: 1; transform: none; }
+        #toast.erro { background: var(--danger); color: #fff; }
+        #toast.ok .icon { color: #4ade80; }
+
+        /* ============================================================
+           8. RESPONSIVO — menu vira barra superior no celular
+           ============================================================ */
+        @media (max-width: 860px) {
+            .app { grid-template-columns: minmax(0, 1fr); }
+            .sidebar { position: static; height: auto; flex-direction: row; align-items: center; justify-content: space-between;
+                       gap: 12px; padding: 12px 16px; flex-wrap: wrap; }
+            .brand small, .nav-label, .side-foot { display: none; }
+            .nav { flex-direction: row; }
+            .nav a { padding: 8px 12px; }
+            .nav a[aria-current="page"] { box-shadow: none; }
+            .content { padding-top: 20px; }
+            #toast { left: 16px; right: 16px; bottom: 16px; max-width: none; }
+        }
+        @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+    </style>
+</head>
+<body>
+    <!-- Ícones reutilizados (estilo de traço, sem biblioteca externa) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+        <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v4M12 17.5v.01"/></symbol>
+        <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 00-4-4L4 16z"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 00-14.5-4M4 4v4h4M4 13a8 8 0 0014.5 4M20 20v-4h-4"/></symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/></symbol>
+        <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+    </svg>
+
+    <div class="app">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-logo"><svg class="icon"><use href="#i-shield"/></svg></div>
+                <div><strong>Painel de Incidentes</strong><small>Spark + Elasticsearch</small></div>
+            </div>
+            <nav class="nav" aria-label="Navegação principal">
+                <div class="nav-label">Menu</div>
+                <a href="#painel" data-rota="painel"><svg class="icon"><use href="#i-grid"/></svg>Painel</a>
+                <a href="#datasource" data-rota="datasource"><svg class="icon"><use href="#i-db"/></svg>Datasource</a>
+            </nav>
+            <div class="side-foot">
+                <b>Como funciona</b><br>
+                Cadastre IPs para monitorar e crie logs no Datasource. O Spark compara os dois e gera os incidentes.
+            </div>
+        </aside>
+
+        <div class="content">
+            <!-- ================= PÁGINA: PAINEL ================= -->
+            <main class="page" id="aba-painel">
+                <header class="page-head">
+                    <div>
+                        <h1>Painel</h1>
+                        <p>Gerencie os IPs monitorados e acompanhe os alertas detectados pelo Spark em tempo real.</p>
+                    </div>
+                    <div class="live" id="live" role="status"><i></i><span id="live-txt">Conectando…</span></div>
+                </header>
+
+                <section class="stats" aria-label="Resumo">
+                    <div class="stat"><div class="stat-icon azul"><svg class="icon"><use href="#i-shield"/></svg></div>
+                        <div><span>IPs monitorados</span><strong id="st-ips">–</strong></div></div>
+                    <div class="stat"><div class="stat-icon ambar"><svg class="icon"><use href="#i-alert"/></svg></div>
+                        <div><span>Incidentes</span><strong id="st-inc">–</strong></div></div>
+                    <div class="stat"><div class="stat-icon verm"><svg class="icon"><use href="#i-ban"/></svg></div>
+                        <div><span>Bloqueados (deny)</span><strong id="st-deny">–</strong></div></div>
+                </section>
+
+                <div class="grid-painel">
+                    <section class="card" aria-labelledby="t-ips">
+                        <div class="card-head">
+                            <div><h2 id="t-ips">IPs monitorados<span class="pill" id="pill-ips">0</span></h2>
+                                 <p>O Spark procura estes IPs nos logs.</p></div>
+                        </div>
+                        <div class="card-body">
+                            <form id="form-add" novalidate>
+                                <div class="campo">
+                                    <label for="novo-ip">Adicionar IP</label>
+                                    <div class="linha-form">
+                                        <input id="novo-ip" class="mono" placeholder="45.67.89.10" autocomplete="off" inputmode="decimal" aria-describedby="erro-ip">
+                                        <button class="btn" type="submit"><svg class="icon"><use href="#i-plus"/></svg>Adicionar</button>
+                                    </div>
+                                    <div class="erro-msg" id="erro-ip" role="alert"></div>
+                                </div>
+                            </form>
+                            <div class="campo">
+                                <label class="sr-only" for="busca">Buscar IP</label>
+                                <div class="input-icon"><svg class="icon"><use href="#i-search"/></svg>
+                                    <input id="busca" type="search" placeholder="Buscar IP…" autocomplete="off"></div>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th>#</th><th>IP</th><th><span class="sr-only">Ações</span></th></tr></thead>
+                                <tbody id="lista-ips"></tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <section class="card" aria-labelledby="t-inc">
+                        <div class="card-head" style="padding-bottom:16px">
+                            <div><h2 id="t-inc">Incidentes recentes</h2>
+                                 <p>Os 50 mais recentes · atualiza sozinho a cada 2 s</p></div>
+                            <button class="btn sec peq" id="btn-atualizar" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Atualizar</button>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead><tr><th>Quando</th><th>Origem → Destino</th><th>Ação</th><th>Mensagem</th></tr></thead>
+                                <tbody id="tabela-incidentes"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </main>
+
+            <!-- ================= PÁGINA: DATASOURCE ================= -->
+            <main class="page" id="aba-deny" hidden>
+                <header class="page-head">
+                    <div>
+                        <h1>Datasource</h1>
+                        <p>Logs de firewall do índice <code>logs-firewall</code>. Cadastre, edite ou remova logs aqui; o que for inserido pelo Kibana também aparece na lista.</p>
+                    </div>
+                </header>
+
+                <section class="card" id="card-form-log" aria-labelledby="t-form-log">
+                    <div class="card-head"><h2 id="t-form-log">Novo log</h2></div>
+                    <div class="card-body">
+                        <div class="aviso-edicao" id="aviso-edicao" hidden><svg class="icon"><use href="#i-edit"/></svg>Editando um log existente</div>
+                        <form class="form-log" id="form-log" novalidate>
+                            <div class="campo c-ip">
+                                <label for="log-src">IP</label>
+                                <input id="log-src" class="mono" placeholder="45.67.89.10" autocomplete="off" inputmode="decimal" aria-describedby="erro-log-src">
+                                <div class="erro-msg" id="erro-log-src" role="alert"></div>
+                            </div>
+                            <div class="campo c-acao">
+                                <label for="log-action">Ação</label>
+                                <select id="log-action"><option value="deny">deny (bloquear)</option><option value="allow">allow (permitir)</option></select>
+                            </div>
+                            <div class="campo c-msg">
+                                <label for="log-msg">Mensagem <span style="font-weight:400;color:var(--faint)">(opcional)</span></label>
+                                <input id="log-msg" placeholder="Ex.: tentativa de acesso SSH" autocomplete="off">
+                            </div>
+                            <div class="botoes">
+                                <button type="button" class="btn sec" id="log-cancel" hidden>Cancelar</button>
+                                <button type="submit" class="btn" id="log-submit"><svg class="icon"><use href="#i-plus"/></svg><span>Adicionar log</span></button>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+
+                <section class="card" aria-labelledby="t-logs">
+                    <div class="card-head" style="padding-bottom:16px">
+                        <div><h2 id="t-logs">Logs do firewall</h2><p class="contagem" id="contagem-logs">Carregando…</p></div>
+                        <button class="btn sec peq" id="btn-logs-atualizar" type="button"><svg class="icon"><use href="#i-refresh"/></svg>Atualizar</button>
+                    </div>
+                    <div class="barra" style="border-top:1px solid var(--border)">
+                        <div class="input-icon"><svg class="icon"><use href="#i-search"/></svg>
+                            <label class="sr-only" for="busca-logs">Buscar nos logs</label>
+                            <input id="busca-logs" type="search" placeholder="Buscar IP ou mensagem…" autocomplete="off"></div>
+                        <div class="seg" role="group" aria-label="Filtrar por ação" id="filtro-acao">
+                            <button type="button" data-f="todos" aria-pressed="true">Todos</button>
+                            <button type="button" data-f="deny" aria-pressed="false">Deny</button>
+                            <button type="button" data-f="allow" aria-pressed="false">Allow</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Quando</th><th>IP</th><th>Ação</th><th>Mensagem</th><th><span class="sr-only">Ações</span></th></tr></thead>
+                            <tbody id="lista-logs"></tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Diálogo de confirmação (substitui o confirm() do navegador) -->
+    <dialog id="dlg" aria-labelledby="dlg-titulo">
+        <form method="dialog">
+            <div class="dlg-topo">
+                <div class="dlg-icone"><svg class="icon"><use href="#i-trash"/></svg></div>
+                <div><h2 id="dlg-titulo"></h2><p id="dlg-texto"></p></div>
+            </div>
+            <div class="dlg-botoes">
+                <button class="btn sec" value="cancel" autofocus>Cancelar</button>
+                <button class="btn perigo" value="ok" id="dlg-ok">Remover</button>
+            </div>
+        </form>
+    </dialog>
+
+    <div id="toast" role="status" aria-live="polite"><svg class="icon"><use href="#i-check"/></svg><span id="toast-txt"></span></div>
+
+    <script>
+        // Nginx: /es/ encaminha ao Elasticsearch.
+        const ES_INCIDENTES = '/es/incidentes/_search';
+        const ES_IPS = '/es/ips-monitorados';
+        const ES_LOGS = '/es/logs-firewall';
+        const REGEX_IP = /^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$/;
+
+        let ips = [];
+        let editando = -1;        // índice do IP em edição (-1 = nenhum)
+        let logs = [];            // [{id, ...source}]
+        let logEditando = null;   // id do log em edição
+        let filtroAcao = 'todos';
+
+        const $ = id => document.getElementById(id);
+        // Escapa texto vindo dos logs antes de colocar no HTML (evita XSS)
+        const esc = s => String(s ?? '-').replace(/[&<>"']/g,
+            c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const icone = n => `<svg class="icon"><use href="#i-${n}"/></svg>`;
+
+        // ---------- Interface: avisos, confirmação, tempo, estados ----------
+        let tToast;
+        function aviso(texto, erro = false) {
+            const t = $('toast');
+            $('toast-txt').textContent = texto;
+            t.querySelector('use').setAttribute('href', erro ? '#i-alert' : '#i-check');
+            t.className = 'show ' + (erro ? 'erro' : 'ok');
+            clearTimeout(tToast);
+            tToast = setTimeout(() => t.className = '', 3000);
+        }
+
+        function confirmar(titulo, texto, rotulo = 'Remover') {
+            return new Promise(resolve => {
+                $('dlg-titulo').textContent = titulo;
+                $('dlg-texto').innerHTML = texto;
+                $('dlg-ok').textContent = rotulo;
+                const d = $('dlg');
+                d.returnValue = '';
+                d.addEventListener('close', () => resolve(d.returnValue === 'ok'), { once: true });
+                d.showModal();
+            });
+        }
+
+        const rtf = new Intl.RelativeTimeFormat('pt-BR', { numeric: 'auto' });
+        function relativo(iso) {
+            const seg = (new Date(iso) - Date.now()) / 1000;
+            if (isNaN(seg)) return '-';
+            for (const [lim, un] of [[60, 'second'], [3600, 'minute'], [86400, 'hour'], [2592000, 'day'], [31536000, 'month']]) {
+                if (Math.abs(seg) < lim) {
+                    const div = { second: 1, minute: 60, hour: 3600, day: 86400, month: 2592000 }[un];
+                    return rtf.format(Math.round(seg / div), un);
+                }
+            }
+            return rtf.format(Math.round(seg / 31536000), 'year');
+        }
+        const quando = iso => !iso || isNaN(new Date(iso)) ? '-'
+            : `<time datetime="${esc(iso)}" data-ts="${esc(iso)}" title="${esc(new Date(iso).toLocaleString('pt-BR'))}">${relativo(iso)}</time>`;
+        setInterval(() => document.querySelectorAll('time[data-ts]').forEach(t => t.textContent = relativo(t.dataset.ts)), 30000);
+
+        const badge = a => `<span class="badge ${a === 'deny' ? 'deny' : a === 'allow' ? 'allow' : 'outro'}">${esc(a || 'desconhecida')}</span>`;
+        const linhaEstado = (cols, icon, titulo, texto, retry = '') => `<tr><td colspan="${cols}"><div class="estado ${retry ? 'erro' : ''}">
+            <div class="icone">${icone(icon)}</div><strong>${titulo}</strong>${texto}${retry}</div></td></tr>`;
+        const carregando = cols => Array(3).fill(`<tr class="skel">${'<td><span></span></td>'.repeat(cols)}</tr>`).join('');
+        const botaoRetry = acao => `<br><button class="btn sec peq" data-retry="${acao}" type="button">${icone('refresh')}Tentar novamente</button>`;
+
+        function ao_vivo(ok) {
+            $('live').classList.toggle('off', !ok);
+            $('live-txt').textContent = ok ? 'Ao vivo · ' + new Date().toLocaleTimeString('pt-BR') : 'Sem conexão com o Elasticsearch';
+        }
+
+        // Desativa o botão enquanto a requisição roda (evita clique duplo)
+        async function ocupado(btn, fn) {
+            btn.disabled = true;
+            try { return await fn(); } finally { btn.disabled = false; }
+        }
+
+        function erroCampo(inputId, erroId, msg) {
+            $(erroId).textContent = msg || '';
+            if (msg) $(inputId).setAttribute('aria-invalid', 'true'); else $(inputId).removeAttribute('aria-invalid');
+        }
+
+        // ---------- Navegação entre páginas (#painel / #datasource) ----------
+        function rota() {
+            const r = location.hash === '#datasource' ? 'datasource' : 'painel';
+            $('aba-painel').hidden = r !== 'painel';
+            $('aba-deny').hidden = r !== 'datasource';
+            document.querySelectorAll('.nav a').forEach(a => a.removeAttribute('aria-current'));
+            document.querySelector(`.nav a[data-rota=${r}]`).setAttribute('aria-current', 'page');
+            document.title = (r === 'painel' ? 'Painel' : 'Datasource') + ' · Painel de Incidentes';
+        }
+        addEventListener('hashchange', rota);
+
+        async function es(path, method, body, base = ES_LOGS) {
+            const r = await fetch(base + path, { method,
+                headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+            if (!r.ok) throw new Error('Elasticsearch respondeu ' + r.status);
+            return r.json();
+        }
+
+        // ---------- CRUD dos IPs (índice ips-monitorados; o _id do documento é o próprio IP) ----------
+        async function lerIps() {                                   // READ
+            const d = await es('/_search?ignore_unavailable=true', 'POST', { size: 1000,
+                sort: [{ '@timestamp': { order: 'asc', unmapped_type: 'date' } }] }, ES_IPS);
+            ips = d.hits.hits.map(h => h._source.ip);
+            editando = -1;
+            renderIps();
+        }
+
+        // aplica a mudança no Elasticsearch e recarrega a lista
+        async function gravarIp(msg, ...ops) {
+            try {
+                for (const [path, method, body] of ops) await es(path, method, body, ES_IPS);
+                await lerIps();
+                aviso(msg);
+                return true;
+            } catch (e) { aviso(e.message, true); }
+        }
+
+        function validar(ip, ignorar = -1) {
+            const msg = !ip ? 'Digite um endereço IP.'
+                : !REGEX_IP.test(ip) ? 'IP inválido. Use o formato 192.168.0.1.'
+                : ips.some((x, i) => x === ip && i !== ignorar) ? 'Este IP já está cadastrado.' : '';
+            if (ignorar < 0) erroCampo('novo-ip', 'erro-ip', msg);
+            else if (msg) aviso(msg, true);
+            return !msg;
+        }
+
+        const docIp = ip => [`/_doc/${ip}?refresh=true`, 'PUT', { ip, '@timestamp': new Date().toISOString() }];
+        const delIp = ip => [`/_doc/${ip}?refresh=true`, 'DELETE'];
+        const criar = ip => validar(ip) && gravarIp('IP adicionado', docIp(ip));                       // CREATE
+        const atualizar = (i, ip) => validar(ip, i) &&                                                  // UPDATE
+            (ip === ips[i] ? lerIps() : gravarIp('IP atualizado', delIp(ips[i]), docIp(ip)));
+        const excluir = async i => await confirmar('Remover IP monitorado?',                           // DELETE
+            `O IP <b>${esc(ips[i])}</b> deixará de ser monitorado pelo Spark.`) && gravarIp('IP removido', delIp(ips[i]));
+
+        function renderIps() {
+            const filtro = $('busca').value.trim();
+            const linhas = ips.map((ip, i) => ({ ip, i })).filter(x => x.ip.includes(filtro));
+            $('st-ips').textContent = ips.length;
+            $('pill-ips').textContent = ips.length;
+            $('lista-ips').innerHTML = linhas.length ? linhas.map(({ ip, i }) => `
+                <tr class="${i === editando ? 'em-edicao' : ''}">
+                    <td class="num">${i + 1}</td>
+                    <td>${i === editando
+                        ? `<input id="edit-ip" class="mono" value="${esc(ip)}" aria-label="Novo valor do IP" inputmode="decimal">`
+                        : `<span class="ip">${esc(ip)}</span>`}</td>
+                    <td class="acoes">${i === editando
+                        ? `<button class="btn-icone ok" data-acao="salvar" data-i="${i}" title="Salvar (Enter)" aria-label="Salvar">${icone('check')}</button>
+                           <button class="btn-icone" data-acao="cancelar" title="Cancelar (Esc)" aria-label="Cancelar">${icone('x')}</button>`
+                        : `<button class="btn-icone" data-acao="editar" data-i="${i}" title="Editar" aria-label="Editar ${esc(ip)}">${icone('edit')}</button>
+                           <button class="btn-icone perigo" data-acao="excluir" data-i="${i}" title="Remover" aria-label="Remover ${esc(ip)}">${icone('trash')}</button>`}</td>
+                </tr>`).join('')
+                : ips.length
+                    ? linhaEstado(3, 'search', 'Nenhum resultado', `Nenhum IP contém “${esc(filtro)}”.`)
+                    : linhaEstado(3, 'inbox', 'Nenhum IP monitorado', 'Cadastre o primeiro IP no campo acima.');
+            if (editando >= 0) { const e = $('edit-ip'); e?.focus(); e?.select(); }
+        }
+
+        $('form-add').addEventListener('submit', async e => {
+            e.preventDefault();
+            const btn = e.submitter ?? e.target.querySelector('button');
+            if (await ocupado(btn, () => criar($('novo-ip').value.trim()))) { $('novo-ip').value = ''; $('novo-ip').focus(); }
+        });
+        $('novo-ip').addEventListener('input', () => erroCampo('novo-ip', 'erro-ip', ''));
+        $('busca').addEventListener('input', renderIps);
+        $('lista-ips').addEventListener('click', e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            const i = Number(b.dataset.i);
+            if (b.dataset.acao === 'editar') { editando = i; renderIps(); }
+            if (b.dataset.acao === 'cancelar') { editando = -1; renderIps(); }
+            if (b.dataset.acao === 'salvar') ocupado(b, () => atualizar(i, $('edit-ip').value.trim()));
+            if (b.dataset.acao === 'excluir') excluir(i);
+        });
+        $('lista-ips').addEventListener('keydown', e => {          // Enter salva, Esc cancela
+            if (e.target.id !== 'edit-ip') return;
+            if (e.key === 'Enter') atualizar(editando, e.target.value.trim());
+            if (e.key === 'Escape') { editando = -1; renderIps(); }
+        });
+
+        // ---------- Incidentes (Elasticsearch) ----------
+        let ultimoIncidentes = '';
+        async function carregarIncidentes() {
+            const tbody = $('tabela-incidentes');
+            try {
+                const r = await fetch(ES_INCIDENTES, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ size: 50, sort: [{ '@timestamp': 'desc' }], track_total_hits: true,
+                        aggs: { deny: { filter: { match: { action: 'deny' } } } } })
+                });
+                if (!r.ok) throw new Error('Elasticsearch respondeu ' + r.status);
+                const texto = await r.text();
+                ao_vivo(true);
+                if (texto === ultimoIncidentes && tbody.children.length) return;   // nada mudou: não redesenha
+                ultimoIncidentes = texto;
+                const dados = JSON.parse(texto);
+                const itens = dados.hits.hits.map(h => h._source);
+
+                $('st-inc').textContent = dados.hits.total.value;
+                $('st-deny').textContent = dados.aggregations.deny.doc_count;
+                tbody.innerHTML = itens.length ? itens.map(x => `
+                    <tr>
+                        <td class="quando">${quando(x['@timestamp'])}</td>
+                        <td class="fluxo"><span class="ip">${esc(x.src_ip)}</span> <span class="seta">→</span> <span class="ip">${esc(x.dest_ip || '-')}</span></td>
+                        <td>${badge(x.action)}</td>
+                        <td class="msg" title="${esc(x.message)}">${esc(x.message)}</td>
+                    </tr>`).join('')
+                    : linhaEstado(4, 'pulse', 'Nenhum incidente ainda',
+                        'Quando o Spark encontrar um IP monitorado em um log, o alerta aparece aqui.');
+            } catch (erro) {
+                ao_vivo(false);
+                ultimoIncidentes = '';
+                tbody.innerHTML = linhaEstado(4, 'alert', 'Não foi possível carregar os incidentes', esc(erro.message), botaoRetry('incidentes'));
+            }
+        }
+        $('btn-atualizar').addEventListener('click', e => ocupado(e.currentTarget, carregarIncidentes));
+
+        // ---------- CRUD dos logs (índice logs-firewall, o mesmo que o Kibana alimenta) ----------
+        async function carregarLogs() {
+            try {
+                const d = await es('/_search', 'POST', { size: 100, track_total_hits: false,
+                    sort: [{ '@timestamp': { order: 'desc', unmapped_type: 'date' } }] });
+                // logs inseridos pelo Kibana trazem src_ip/action só dentro do texto da mensagem (k=v)
+                const kv = (x, k) => x[k] ?? x.message?.match(new RegExp('\\b' + k + '=(\\S+)'))?.[1];
+                logs = d.hits.hits.map(h => { const x = { id: h._id, ...h._source };
+                    return { ...x, src_ip: kv(x, 'src_ip'), action: kv(x, 'action') }; });
+                renderLogs();
+            } catch (erro) {
+                $('contagem-logs').textContent = 'Erro ao carregar';
+                $('lista-logs').innerHTML = linhaEstado(5, 'alert', 'Não foi possível carregar os logs', esc(erro.message), botaoRetry('logs'));
+            }
+        }
+
+        function renderLogs() {
+            const q = $('busca-logs').value.trim().toLowerCase();
+            const vis = logs.filter(x => (filtroAcao === 'todos' || x.action === filtroAcao)
+                && (!q || `${x.src_ip} ${x.message}`.toLowerCase().includes(q)));
+            $('contagem-logs').textContent = logs.length
+                ? `Mostrando ${vis.length} de ${logs.length} logs (mais recentes primeiro)` : 'Nenhum log';
+            $('lista-logs').innerHTML = vis.length ? vis.map(x => `
+                <tr class="${x.id === logEditando ? 'em-edicao' : ''}">
+                    <td class="quando">${quando(x['@timestamp'])}</td>
+                    <td><span class="ip">${esc(x.src_ip)}</span></td>
+                    <td>${badge(x.action)}</td>
+                    <td class="msg" title="${esc(x.message)}">${esc(x.message)}</td>
+                    <td class="acoes">
+                        <button class="btn-icone" data-acao="editar" data-id="${esc(x.id)}" title="Editar" aria-label="Editar log de ${esc(x.src_ip)}">${icone('edit')}</button>
+                        <button class="btn-icone perigo" data-acao="excluir" data-id="${esc(x.id)}" title="Remover" aria-label="Remover log de ${esc(x.src_ip)}">${icone('trash')}</button>
+                    </td>
+                </tr>`).join('')
+                : logs.length
+                    ? linhaEstado(5, 'search', 'Nenhum log corresponde ao filtro', 'Tente outra busca ou volte para “Todos”.')
+                    : linhaEstado(5, 'inbox', 'Nenhum log cadastrado', 'Use o formulário acima para criar o primeiro log.');
+        }
+
+        function fimEdicaoLog() {
+            logEditando = null;
+            $('form-log').reset();
+            erroCampo('log-src', 'erro-log-src', '');
+            $('log-submit').querySelector('span').textContent = 'Adicionar log';
+            $('log-submit').querySelector('use').setAttribute('href', '#i-plus');
+            $('log-cancel').hidden = true;
+            $('aviso-edicao').hidden = true;
+            $('t-form-log').textContent = 'Novo log';
+            $('card-form-log').classList.remove('editando');
+            renderLogs();
+        }
+
+        $('form-log').addEventListener('submit', async e => {
+            e.preventDefault();
+            const src_ip = $('log-src').value.trim();
+            const msg = !src_ip ? 'Digite um endereço IP.' : !REGEX_IP.test(src_ip) ? 'IP inválido. Use o formato 192.168.0.1.' : '';
+            erroCampo('log-src', 'erro-log-src', msg);
+            if (msg) return $('log-src').focus();
+            const doc = { src_ip, action: $('log-action').value, message: $('log-msg').value.trim() };
+            await ocupado($('log-submit'), async () => {
+                try {
+                    if (logEditando) {   // UPDATE: mescla, preservando @timestamp original
+                        await es(`/_update/${encodeURIComponent(logEditando)}?refresh=true`, 'POST', { doc });
+                    } else {             // CREATE
+                        await es('/_doc?refresh=true', 'POST', { ...doc, '@timestamp': new Date().toISOString() });
+                    }
+                    aviso(logEditando ? 'Log atualizado' : 'Log adicionado');
+                    fimEdicaoLog();
+                    carregarLogs();
+                } catch (err) { aviso(err.message, true); }
+            });
+        });
+
+        $('log-src').addEventListener('input', () => erroCampo('log-src', 'erro-log-src', ''));
+        $('log-cancel').addEventListener('click', fimEdicaoLog);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape' && logEditando && !$('dlg').open) fimEdicaoLog(); });
+        $('btn-logs-atualizar').addEventListener('click', e => ocupado(e.currentTarget, carregarLogs));
+        $('busca-logs').addEventListener('input', renderLogs);
+        $('filtro-acao').addEventListener('click', e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            filtroAcao = b.dataset.f;
+            $('filtro-acao').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', x === b));
+            renderLogs();
+        });
+        $('lista-logs').addEventListener('click', async e => {
+            const b = e.target.closest('button');
+            if (!b) return;
+            const x = logs.find(l => l.id === b.dataset.id);
+            if (b.dataset.acao === 'editar') {
+                logEditando = x.id;
+                $('log-src').value = x.src_ip ?? '';
+                $('log-action').value = x.action === 'allow' ? 'allow' : 'deny';
+                $('log-msg').value = x.message ?? '';
+                $('log-submit').querySelector('span').textContent = 'Salvar alterações';
+                $('log-submit').querySelector('use').setAttribute('href', '#i-check');
+                $('log-cancel').hidden = false;
+                $('aviso-edicao').hidden = false;
+                $('t-form-log').textContent = 'Editar log';
+                $('card-form-log').classList.add('editando');
+                renderLogs();
+                $('card-form-log').scrollIntoView({ behavior: 'smooth', block: 'center' });
+                $('log-src').focus();
+            }
+            if (b.dataset.acao === 'excluir' && await confirmar('Remover este log?',          // DELETE
+                `O registro de <b>${esc(x.src_ip)}</b> será apagado do índice <code>logs-firewall</code>.`)) {
+                try {
+                    await es(`/_doc/${encodeURIComponent(x.id)}?refresh=true`, 'DELETE');
+                    if (logEditando === x.id) fimEdicaoLog();
+                    aviso('Log removido'); carregarLogs();
+                } catch (err) { aviso(err.message, true); }
+            }
+        });
+
+        // botão "Tentar novamente" dos estados de erro
+        document.addEventListener('click', e => {
+            const r = e.target.closest('[data-retry]')?.dataset.retry;
+            if (r === 'incidentes') { ultimoIncidentes = ''; carregarIncidentes(); }
+            if (r === 'logs') carregarLogs();
+            if (r === 'ips') lerIps().catch(erroIps);
+        });
+
+        // ---------- Inicialização ----------
+        const erroIps = e => {
+            $('lista-ips').innerHTML = linhaEstado(3, 'alert', 'Não foi possível carregar os IPs', esc(e.message), botaoRetry('ips'));
+        };
+        rota();
+        $('lista-ips').innerHTML = carregando(3);
+        $('tabela-incidentes').innerHTML = carregando(4);
+        $('lista-logs').innerHTML = carregando(5);
+        lerIps().catch(erroIps);
+        carregarIncidentes();
+        carregarLogs();
+        setInterval(carregarIncidentes, 2000);   // atualiza sozinho a cada 2 s
+        setInterval(carregarLogs, 5000);         // pega o que for inserido pelo Kibana
+    </script>
+</body>
+</html>

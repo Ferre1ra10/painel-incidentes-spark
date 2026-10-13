@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  painel-web:
+    image: nginx:alpine
+    container_name: painel_incidentes_web
+    ports:
+      - "80:80"
+    volumes:
+      # Mapeia o ficheiro index.html da sua máquina para dentro da pasta pública do Nginx
+      - ./index.html:/usr/share/nginx/html/index.html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: always
+    networks:
+      - elastic-net
+
+networks:
+  elastic-net:
+    external: true
+    name: elasticsearch_elastic-net
