@@ -202,7 +202,7 @@
 
         /* formulário do Datasource */
         .form-log { display: grid; gap: 16px; grid-template-columns: repeat(12, minmax(0, 1fr)); align-items: start; }
-        .form-log .c-ip { grid-column: span 3; } .form-log .c-acao { grid-column: span 2; } .form-log .c-msg { grid-column: span 7; }
+        .form-log .c-ip { grid-column: span 3; } .form-log .c-acao { grid-column: span 2; } .form-log .c-msg { grid-column: span 4; }
         .form-log .botoes { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; }
         @media (max-width: 860px) { .form-log .c-ip, .form-log .c-acao, .form-log .c-msg { grid-column: 1 / -1; } }
         .card.editando { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
@@ -373,9 +373,14 @@
                         <div class="aviso-edicao" id="aviso-edicao" hidden><svg class="icon"><use href="#i-edit"/></svg>Editando um log existente</div>
                         <form class="form-log" id="form-log" novalidate>
                             <div class="campo c-ip">
-                                <label for="log-src">IP</label>
+                                <label for="log-src">IP de origem</label>
                                 <input id="log-src" class="mono" placeholder="45.67.89.10" autocomplete="off" inputmode="decimal" aria-describedby="erro-log-src">
                                 <div class="erro-msg" id="erro-log-src" role="alert"></div>
+                            </div>
+                            <div class="campo c-ip">
+                                <label for="log-dest">IP de destino</label>
+                                <input id="log-dest" class="mono" placeholder="10.0.1.20" autocomplete="off" inputmode="decimal" aria-describedby="erro-log-dest">
+                                <div class="erro-msg" id="erro-log-dest" role="alert"></div>
                             </div>
                             <div class="campo c-acao">
                                 <label for="log-action">Ação</label>
@@ -410,7 +415,7 @@
                     </div>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>Quando</th><th>IP</th><th>Ação</th><th>Mensagem</th><th><span class="sr-only">Ações</span></th></tr></thead>
+                            <thead><tr><th>Quando</th><th>Origem → Destino</th><th>Ação</th><th>Mensagem</th><th><span class="sr-only">Ações</span></th></tr></thead>
                             <tbody id="lista-logs"></tbody>
                         </table>
                     </div>
@@ -437,7 +442,7 @@
 
     <script>
         // Nginx: /es/ encaminha ao Elasticsearch.
-        const ES_INCIDENTES = '/es/incidentes/_search';
+        const ES_INCIDENTES = '/es/incidentes/_search?ignore_unavailable=true';   // índice ausente = lista vazia
         const ES_IPS = '/es/ips-monitorados';
         const ES_LOGS = '/es/logs-firewall';
         const REGEX_IP = /^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$/;
@@ -634,7 +639,7 @@
                 const itens = dados.hits.hits.map(h => h._source);
 
                 $('st-inc').textContent = dados.hits.total.value;
-                $('st-deny').textContent = dados.aggregations.deny.doc_count;
+                $('st-deny').textContent = dados.aggregations?.deny.doc_count ?? 0;
                 tbody.innerHTML = itens.length ? itens.map(x => `
                     <tr>
                         <td class="quando">${quando(x['@timestamp'])}</td>
@@ -660,7 +665,7 @@
                 // logs inseridos pelo Kibana trazem src_ip/action só dentro do texto da mensagem (k=v)
                 const kv = (x, k) => x[k] ?? x.message?.match(new RegExp('\\b' + k + '=(\\S+)'))?.[1];
                 logs = d.hits.hits.map(h => { const x = { id: h._id, ...h._source };
-                    return { ...x, src_ip: kv(x, 'src_ip'), action: kv(x, 'action') }; });
+                    return { ...x, src_ip: kv(x, 'src_ip'), dest_ip: kv(x, 'dest_ip'), action: kv(x, 'action') }; });
                 renderLogs();
             } catch (erro) {
                 $('contagem-logs').textContent = 'Erro ao carregar';
@@ -671,13 +676,13 @@
         function renderLogs() {
             const q = $('busca-logs').value.trim().toLowerCase();
             const vis = logs.filter(x => (filtroAcao === 'todos' || x.action === filtroAcao)
-                && (!q || `${x.src_ip} ${x.message}`.toLowerCase().includes(q)));
+                && (!q || `${x.src_ip} ${x.dest_ip} ${x.message}`.toLowerCase().includes(q)));
             $('contagem-logs').textContent = logs.length
                 ? `Mostrando ${vis.length} de ${logs.length} logs (mais recentes primeiro)` : 'Nenhum log';
             $('lista-logs').innerHTML = vis.length ? vis.map(x => `
                 <tr class="${x.id === logEditando ? 'em-edicao' : ''}">
                     <td class="quando">${quando(x['@timestamp'])}</td>
-                    <td><span class="ip">${esc(x.src_ip)}</span></td>
+                    <td class="fluxo"><span class="ip">${esc(x.src_ip)}</span> <span class="seta">→</span> <span class="ip">${esc(x.dest_ip)}</span></td>
                     <td>${badge(x.action)}</td>
                     <td class="msg" title="${esc(x.message)}">${esc(x.message)}</td>
                     <td class="acoes">
@@ -693,7 +698,7 @@
         function fimEdicaoLog() {
             logEditando = null;
             $('form-log').reset();
-            erroCampo('log-src', 'erro-log-src', '');
+            erroCampo('log-src', 'erro-log-src', ''); erroCampo('log-dest', 'erro-log-dest', '');
             $('log-submit').querySelector('span').textContent = 'Adicionar log';
             $('log-submit').querySelector('use').setAttribute('href', '#i-plus');
             $('log-cancel').hidden = true;
@@ -705,11 +710,13 @@
 
         $('form-log').addEventListener('submit', async e => {
             e.preventDefault();
-            const src_ip = $('log-src').value.trim();
-            const msg = !src_ip ? 'Digite um endereço IP.' : !REGEX_IP.test(src_ip) ? 'IP inválido. Use o formato 192.168.0.1.' : '';
-            erroCampo('log-src', 'erro-log-src', msg);
-            if (msg) return $('log-src').focus();
-            const doc = { src_ip, action: $('log-action').value, message: $('log-msg').value.trim() };
+            const src_ip = $('log-src').value.trim(), dest_ip = $('log-dest').value.trim();
+            const valida = ip => !ip ? 'Digite um endereço IP.' : !REGEX_IP.test(ip) ? 'IP inválido. Use o formato 192.168.0.1.' : '';
+            const e1 = valida(src_ip), e2 = valida(dest_ip);
+            erroCampo('log-src', 'erro-log-src', e1);
+            erroCampo('log-dest', 'erro-log-dest', e2);
+            if (e1 || e2) return $(e1 ? 'log-src' : 'log-dest').focus();
+            const doc = { src_ip, dest_ip, action: $('log-action').value, message: $('log-msg').value.trim() };
             await ocupado($('log-submit'), async () => {
                 try {
                     if (logEditando) {   // UPDATE: mescla, preservando @timestamp original
@@ -725,6 +732,7 @@
         });
 
         $('log-src').addEventListener('input', () => erroCampo('log-src', 'erro-log-src', ''));
+        $('log-dest').addEventListener('input', () => erroCampo('log-dest', 'erro-log-dest', ''));
         $('log-cancel').addEventListener('click', fimEdicaoLog);
         document.addEventListener('keydown', e => { if (e.key === 'Escape' && logEditando && !$('dlg').open) fimEdicaoLog(); });
         $('btn-logs-atualizar').addEventListener('click', e => ocupado(e.currentTarget, carregarLogs));
@@ -743,6 +751,7 @@
             if (b.dataset.acao === 'editar') {
                 logEditando = x.id;
                 $('log-src').value = x.src_ip ?? '';
+                $('log-dest').value = x.dest_ip ?? '';
                 $('log-action').value = x.action === 'allow' ? 'allow' : 'deny';
                 $('log-msg').value = x.message ?? '';
                 $('log-submit').querySelector('span').textContent = 'Salvar alterações';
@@ -756,7 +765,7 @@
                 $('log-src').focus();
             }
             if (b.dataset.acao === 'excluir' && await confirmar('Remover este log?',          // DELETE
-                `O registro de <b>${esc(x.src_ip)}</b> será apagado do índice <code>logs-firewall</code>.`)) {
+                `O registro de <b>${esc(x.src_ip)}</b> → <b>${esc(x.dest_ip)}</b> será apagado do índice <code>logs-firewall</code>.`)) {
                 try {
                     await es(`/_doc/${encodeURIComponent(x.id)}?refresh=true`, 'DELETE');
                     if (logEditando === x.id) fimEdicaoLog();

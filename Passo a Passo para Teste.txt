@@ -110,8 +110,18 @@ Teste a validacao: digite 999.1.1.1 (erro "IP invalido") e repita um
 IP ja cadastrado (erro "Este IP ja esta cadastrado").
 
 ---------------------------------------------------------------------
- PASSO 6 - Rodar o detector (deixe este terminal aberto)
+ PASSO 6 - Detector (ja sobe sozinho com o Spark)
 ---------------------------------------------------------------------
+O servico "detector" do SPARK/docker-compose.yml roda o deny_list.py
+e reinicia sozinho se cair. Para ver os alertas ao vivo:
+  docker logs -f spark-detector        (Ctrl+C sai; o detector continua)
+
+Para rodar a mao em vez disso (so se precisar depurar):
+  cd SPARK && docker compose stop detector
+  docker compose exec spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark-apps/deny_list.py
+  (Ctrl+C para; depois: docker compose start detector)
+
+Comando antigo, equivalente:
 cd SPARK
 docker compose exec spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark-apps/deny_list.py
 
@@ -129,7 +139,7 @@ NUNCA use "now" (o Elasticsearch recusa: erro 400).
 Cada POST deve responder  "result": "created".
 
 --- Teste A: IP monitorado com deny (pelo Painel) ---------------------
-Datasource > Novo log:  IP 203.0.113.10 | Acao deny | Mensagem "teste A"
+Datasource > Novo log:  Origem 203.0.113.10 | Destino 10.0.1.20 | Acao deny | Mensagem "teste A"
 Clique em "Adicionar log".
 Esperado:
   - o log aparece na tabela do Datasource;
@@ -208,8 +218,8 @@ Use a caixa "Buscar IP..." para filtrar a lista.
 2) Use os botoes Todos / Deny / Allow e a busca por IP ou mensagem.
    A contagem "Mostrando X de Y logs" acompanha o filtro.
 3) Clique na LIXEIRA e confirme: o log some da tabela e do indice.
-4) Deixe o campo IP vazio ou digite 999.1.1.1: o erro aparece embaixo
-   do campo e nada e gravado.
+4) Deixe a origem ou o destino vazio, ou digite 999.1.1.1: o erro
+   aparece embaixo do campo e nada e gravado.
 
 --- Teste I: ver no Kibana --------------------------------------------
 Kibana > Stack Management > Data Views > Create data view:
@@ -243,8 +253,8 @@ DELETE ips-monitorados
 Obs: apagar so "incidentes" nao basta: o Spark relê os logs e recria
 os incidentes. Para zerar de verdade, apague os indices e reinicie o
 detector (Ctrl+C e rode o PASSO 6 de novo).
-Reiniciar o detector tambem faz o Spark gerar de novo incidentes dos
-logs antigos (ele so lembra dos logs ja vistos enquanto esta rodando).
+Reiniciar o detector NAO duplica incidentes: o _id do incidente e o _id
+do log, entao ele so regrava o mesmo incidente.
 
 ---------------------------------------------------------------------
  PARAR TUDO

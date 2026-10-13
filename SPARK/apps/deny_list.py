@@ -157,8 +157,9 @@ try:
 
             try:
                 chamar_elastic(
-                    f"/{INDEX_INCIDENTES}/_doc?refresh=true",
-                    metodo="POST",
+                    # _id = id do log: regravar o mesmo log não duplica o incidente
+                    f"/{INDEX_INCIDENTES}/_doc/{row['_id']}?refresh=true",
+                    metodo="PUT",
                     corpo={
                         "@timestamp": agora,
                         "src_ip": row["src_ip"],

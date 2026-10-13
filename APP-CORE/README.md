@@ -46,8 +46,8 @@ O proxy `/es/` existe para evitar CORS e porque o navegador não enxerga o hostn
 
 É a fonte de dados dos logs de firewall, ou seja, o índice `logs-firewall` do Elasticsearch. Em vez de inserir logs fictícios só pelo Kibana, você pode criá-los, editá-los e removê-los direto por aqui.
 
-- Formulário com **IP**, **ação** (`deny` ou `allow`) e **mensagem**.
-- O IP é gravado no campo `src_ip`, que é o campo que o script do Spark lê.
+- Formulário com **IP de origem**, **IP de destino**, **ação** (`deny` ou `allow`) e **mensagem**. Origem e destino são obrigatórios.
+- A origem é gravada em `src_ip` (campo que o Spark compara com os IPs monitorados) e o destino em `dest_ip`.
 - A tabela lista os 100 logs mais recentes e se atualiza a cada 5 segundos, então o que você inserir pelo Kibana também aparece.
 - Logs inseridos pelo Kibana costumam trazer tudo dentro de `message` (`src_ip=... action=...`). A tela extrai o IP e a ação desse texto quando os campos não existem.
 
@@ -80,7 +80,7 @@ O `refresh=true` faz a alteração aparecer na busca imediatamente.
 | Índice | Quem grava | Campos |
 |---|---|---|
 | `ips-monitorados` | Painel (aba Painel) | `ip`, `@timestamp`. O `_id` é o IP. |
-| `logs-firewall` | Painel (aba Datasource) e Kibana | `src_ip`, `action`, `message`, `@timestamp`. Os logs do Kibana podem ter só `message` e `@timestamp`, com `src_ip=... dest_ip=... action=...` dentro do texto. |
+| `logs-firewall` | Painel (aba Datasource) e Kibana | `src_ip`, `dest_ip`, `action`, `message`, `@timestamp`. Os logs do Kibana podem ter só `message` e `@timestamp`, com `src_ip=... dest_ip=... action=...` dentro do texto. |
 | `incidentes` | Spark | `@timestamp`, `src_ip`, `dest_ip`, `action`, `message` (cópia do log que deu match). |
 
 ## Como o Spark funciona (`SPARK/apps/deny_list.py`)
@@ -92,7 +92,7 @@ O script roda em loop (a cada 2 segundos) dentro do cluster Spark:
 3. Cria um DataFrame do Spark e filtra os logs cujo `src_ip` está na lista de IPs monitorados.
 4. Para cada match ainda não visto (controlado pelo `_id` do log, em memória), grava um documento em `incidentes` e uma linha em `danylist.csv`, e imprime `[ALERTA]` no terminal. Se a gravação falhar, tenta de novo no ciclo seguinte.
 
-Como a memória de "já visto" é do processo, ao reiniciar o script os logs que já deram match geram incidentes duplicados.
+O `_id` do incidente é o `_id` do log. Por isso, se o detector reiniciar, os logs que já deram match são regravados sobre o mesmo incidente, sem duplicar.
 
 ## Como foi feito
 
@@ -120,7 +120,9 @@ cd APP-CORE && docker compose up -d && cd ..
 
 O índice `ips-monitorados` é criado quando o primeiro IP é cadastrado pelo painel.
 
-Para ver o Spark em ação, rode o `deny_list.py` dentro do cluster. A cada 2 segundos ele relê `ips-monitorados` e `logs-firewall`, compara o `src_ip` dos logs com os IPs monitorados, grava os matches no índice `incidentes` (que aparece na aba Painel) e no `danylist.csv`, e imprime os alertas no terminal. IP novo ou removido vale sem reiniciar. Pare com `Ctrl+C`.
+O detector (`deny_list.py`) sobe sozinho com o Spark, como o serviço `detector` do `SPARK/docker-compose.yml`, e reinicia se cair. Para acompanhar os alertas: `docker logs -f spark-detector`.
+
+Para rodá-lo à mão em vez disso (pare o serviço antes: `docker compose stop detector`), use o `deny_list.py` dentro do cluster. A cada 2 segundos ele relê `ips-monitorados` e `logs-firewall`, compara o `src_ip` dos logs com os IPs monitorados, grava os matches no índice `incidentes` (que aparece na aba Painel) e no `danylist.csv`, e imprime os alertas no terminal. IP novo ou removido vale sem reiniciar. Pare com `Ctrl+C`.
 
 ```bash
 docker exec spark-master /opt/spark/bin/spark-submit /opt/spark-apps/deny_list.py
