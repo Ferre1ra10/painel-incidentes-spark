@@ -1,8 +1,12 @@
 =====================================================================
- ROTEIRO DE TESTE - Spark + Elasticsearch + Painel (deny list)
+ ROTEIRO DE TESTE - Spark + Elasticsearch + Painel de Incidentes
 =====================================================================
-Fluxo: Kibana (logs falsos) -> Elasticsearch -> Spark compara com a
-lista de IPs (logs-ips.json) -> incidentes -> Painel web.
+Fluxo: Painel (aba Datasource) ou Kibana -> logs-firewall
+       Painel (IPs monitorados)            -> ips-monitorados
+       Spark compara os dois               -> incidentes -> Painel
+
+Tudo fica no Elasticsearch (3 indices). Nao existe mais arquivo
+logs-ips.json nem pasta APP-CORE/dados.
 
 ORDEM OBRIGATORIA:
   Elasticsearch -> indices -> Spark -> Painel -> Detector -> Testes
@@ -11,7 +15,6 @@ ORDEM OBRIGATORIA:
  PASSO 0 - (so Linux) preparar o sistema
 ---------------------------------------------------------------------
 sudo sysctl -w vm.max_map_count=262144
-chmod -R 777 APP-CORE/dados
 
 (No Windows/Mac nao precisa.)
 
@@ -33,11 +36,23 @@ Abra http://localhost:5601 > menu > Dev Tools.
 Cole um bloco por vez, deixe o cursor dentro dele e clique no ▶.
 Confirme "acknowledged": true. So precisa fazer 1 vez.
 
+PUT ips-monitorados
+{
+  "mappings": {
+    "properties": {
+      "@timestamp": { "type": "date" },
+      "ip": { "type": "keyword" }
+    }
+  }
+}
+
 PUT logs-firewall
 {
   "mappings": {
     "properties": {
       "@timestamp": { "type": "date" },
+      "src_ip": { "type": "keyword" },
+      "action": { "type": "keyword" },
       "message": { "type": "text" }
     }
   }
@@ -55,6 +70,10 @@ PUT incidentes
     }
   }
 }
+
+(Se pular este passo, o painel ainda funciona: o Elasticsearch cria os
+indices sozinho ao gravar. Mas o Spark pode mostrar 404 antes do
+primeiro log, e os campos ficam com o tipo adivinhado.)
 
 ---------------------------------------------------------------------
  PASSO 3 - Subir o Spark (1 master + 3 workers)
@@ -74,39 +93,61 @@ docker compose up -d
 Abra http://localhost
 (Precisa vir DEPOIS do passo 1: usa a rede do Elasticsearch.)
 
+O painel tem 2 paginas no menu lateral:
+  Painel      - IPs monitorados (cadastrar/editar/remover) e incidentes
+  Datasource  - logs de firewall (cadastrar/editar/remover)
+O indicador "Ao vivo" (canto superior direito) deve ficar VERDE.
+
 ---------------------------------------------------------------------
- PASSO 5 - Rodar o detector (deixe este terminal aberto)
+ PASSO 5 - Cadastrar os IPs monitorados (Painel > IPs monitorados)
+---------------------------------------------------------------------
+A lista comeca VAZIA. Digite cada IP abaixo e clique em Adicionar:
+  203.0.113.10
+  198.51.100.25
+  192.0.2.50
+Esperado: cada IP aparece na lista e o cartao "IPs monitorados" sobe.
+Teste a validacao: digite 999.1.1.1 (erro "IP invalido") e repita um
+IP ja cadastrado (erro "Este IP ja esta cadastrado").
+
+---------------------------------------------------------------------
+ PASSO 6 - Rodar o detector (deixe este terminal aberto)
 ---------------------------------------------------------------------
 cd SPARK
 docker compose exec spark-master /opt/spark/bin/spark-submit --master spark://spark-master:7077 /opt/spark-apps/deny_list.py
 
-Mostra: "Deny List iniciado" e "sem novos matches" a cada 2 s.
-Parar: Ctrl+C
+Mostra: "Deny List iniciado", a lista de IPs e "sem novos matches"
+a cada 2 s. Parar: Ctrl+C
 
 ---------------------------------------------------------------------
- PASSO 6 - Testes
+ PASSO 7 - Testes
 ---------------------------------------------------------------------
-IMPORTANTE: use sempre data real em "@timestamp".
+Os logs podem ser criados de 2 jeitos (os dois sao validos):
+  (1) Pelo PAINEL: pagina Datasource > "Novo log" (IP, acao, mensagem)
+  (2) Pelo KIBANA: Dev Tools, como nos exemplos abaixo.
+No Kibana use sempre data real em "@timestamp".
 NUNCA use "now" (o Elasticsearch recusa: erro 400).
 Cada POST deve responder  "result": "created".
 
---- Teste A: IP que ja esta na lista (deny) ---------------------------
-POST logs-firewall/_doc
-{
-  "@timestamp": "2026-10-07T14:00:00Z",
-  "message": "timestamp=2026-10-07T14:00:00Z hostname=fw-01 src_ip=203.0.113.10 dest_ip=10.0.1.20 src_port=54321 dest_port=22 proto=tcp action=deny"
-}
-Esperado: [ALERTA] no terminal do Spark + linha VERMELHA (deny) no painel.
+--- Teste A: IP monitorado com deny (pelo Painel) ---------------------
+Datasource > Novo log:  IP 203.0.113.10 | Acao deny | Mensagem "teste A"
+Clique em "Adicionar log".
+Esperado:
+  - o log aparece na tabela do Datasource;
+  - terminal do Spark: [ALERTA] IP da deny list encontrado: 203.0.113.10
+    e "Novos incidentes gravados: 1";
+  - Painel > Incidentes recentes: linha com etiqueta VERMELHA (deny);
+  - cartoes "Incidentes" e "Bloqueados (deny)" sobem.
 
---- Teste B: outro IP da lista (deny) ---------------------------------
+--- Teste B: outro IP monitorado (pelo Kibana) ------------------------
 POST logs-firewall/_doc
 {
   "@timestamp": "2026-10-07T14:00:10Z",
   "message": "timestamp=2026-10-07T14:00:10Z hostname=fw-01 src_ip=198.51.100.25 dest_ip=10.0.1.8 src_port=44112 dest_port=3389 proto=tcp action=deny"
 }
-Esperado: novo [ALERTA] + linha vermelha.
+Esperado: novo [ALERTA] + linha vermelha. O log tambem aparece no
+Datasource em ate 5 s, com IP e acao lidos de dentro da mensagem.
 
---- Teste C: IP da lista com allow (o firewall deixou passar) ---------
+--- Teste C: IP monitorado com allow (o firewall deixou passar) -------
 POST logs-firewall/_doc
 {
   "@timestamp": "2026-10-07T14:00:15Z",
@@ -120,11 +161,11 @@ POST logs-firewall/_doc
   "@timestamp": "2026-10-07T14:00:20Z",
   "message": "timestamp=2026-10-07T14:00:20Z hostname=fw-01 src_ip=10.0.0.15 dest_ip=8.8.8.8 src_port=53100 dest_port=53 proto=udp action=allow"
 }
-Esperado: NADA no painel (IP fora da lista). Isso esta correto.
+Esperado: NADA em Incidentes (IP fora da lista). Isso esta correto.
+O log aparece normalmente no Datasource.
 
---- Teste E: adicionar um IP novo pelo Painel -------------------------
-1) No painel (http://localhost), em "IPs monitorados", digite
-   10.100.10.10 e clique em Adicionar.
+--- Teste E: adicionar um IP novo com o detector rodando --------------
+1) Painel > IPs monitorados: digite 10.100.10.10 e clique em Adicionar.
    Terminal do Spark mostra: [NOVO IP MONITORADO] 10.100.10.10
 2) Envie o log no Kibana:
 
@@ -152,29 +193,58 @@ POST logs-firewall/_doc
 Esperado: 1 linha vermelha (deny) e 1 verde (allow).
 
 --- Teste G: editar e remover IP no Painel ----------------------------
-Clique em "Editar" (troca o IP na linha) ou "Remover" (pede
-confirmacao). Terminal mostra [IP REMOVIDO] ao remover.
+Na lista "IPs monitorados":
+  - icone de LAPIS: edita o IP na propria linha. Enter salva, Esc
+    cancela. Terminal mostra [IP REMOVIDO] (antigo) e [NOVO IP
+    MONITORADO] (novo).
+  - icone de LIXEIRA: abre a janela de confirmacao. "Cancelar" mantem
+    o IP; "Remover" apaga. Terminal mostra [IP REMOVIDO].
+Use a caixa "Buscar IP..." para filtrar a lista.
+
+--- Teste H: editar, filtrar e remover logs no Datasource -------------
+1) Clique no LAPIS de um log: o formulario muda para "Editar log" e o
+   botao para "Salvar alteracoes". Troque a acao para allow e salve.
+   (Esc ou "Cancelar" desiste da edicao.)
+2) Use os botoes Todos / Deny / Allow e a busca por IP ou mensagem.
+   A contagem "Mostrando X de Y logs" acompanha o filtro.
+3) Clique na LIXEIRA e confirme: o log some da tabela e do indice.
+4) Deixe o campo IP vazio ou digite 999.1.1.1: o erro aparece embaixo
+   do campo e nada e gravado.
+
+--- Teste I: ver no Kibana --------------------------------------------
+Kibana > Stack Management > Data Views > Create data view:
+  nome/pattern: logs-firewall   campo de tempo: @timestamp
+Abra o Discover: os logs criados pelo Painel aparecem la.
+(Repita para ips-monitorados e incidentes, se quiser.)
+
+--- Teste J: conexao perdida (opcional) -------------------------------
+cd ELASTICSEARCH && docker compose stop elasticsearch
+Esperado: o indicador "Ao vivo" fica VERMELHO e as tabelas mostram
+"Nao foi possivel carregar" com o botao "Tentar novamente".
+Depois: docker compose start elasticsearch  (o painel se recupera).
 
 ---------------------------------------------------------------------
  CONFERIR PELO TERMINAL (opcional)
 ---------------------------------------------------------------------
+curl "http://localhost:9200/ips-monitorados/_search?pretty"
 curl "http://localhost:9200/logs-firewall/_count"
 curl "http://localhost:9200/incidentes/_count"
 curl "http://localhost:9200/incidentes/_search?pretty"
 curl "http://localhost:9200/_cat/indices?v"
-type APP-CORE\dados\logs-ips.json        (Windows)
-cat APP-CORE/dados/logs-ips.json         (Linux/Mac)
 
 ---------------------------------------------------------------------
  LIMPAR PARA REPETIR O TESTE DO ZERO (Kibana > Dev Tools)
 ---------------------------------------------------------------------
 DELETE incidentes
 DELETE logs-firewall
-(Depois recrie os dois indices do PASSO 2.)
+DELETE ips-monitorados
+(Depois recrie os tres indices do PASSO 2 e cadastre os IPs de novo.)
 
 Obs: apagar so "incidentes" nao basta: o Spark relê os logs e recria
-os incidentes. Para zerar de verdade, apague os dois e reinicie o
-detector (Ctrl+C e rode o PASSO 5 de novo).
+os incidentes. Para zerar de verdade, apague os indices e reinicie o
+detector (Ctrl+C e rode o PASSO 6 de novo).
+Reiniciar o detector tambem faz o Spark gerar de novo incidentes dos
+logs antigos (ele so lembra dos logs ja vistos enquanto esta rodando).
 
 ---------------------------------------------------------------------
  PARAR TUDO
@@ -187,15 +257,20 @@ cd ELASTICSEARCH  && docker compose down
 ---------------------------------------------------------------------
  PROBLEMAS COMUNS
 ---------------------------------------------------------------------
-- Spark mostra 404 .............. faltou criar os indices (PASSO 2)
+- Spark mostra 404 .............. faltou criar os indices (PASSO 2) ou
+      ainda nao existe nenhum IP/log: cadastre pelo Painel (PASSO 5)
 - APP-CORE: rede "elasticsearch_elastic-net" nao encontrada
       .......................... suba o Elasticsearch antes (PASSO 1)
       e nao renomeie a pasta ELASTICSEARCH
 - Kibana: erro 400 em @timestamp . voce usou "now"; use data ISO
-- "Erro ao salvar (403)" no painel ... permissao da pasta dados (Linux):
-      chmod -R 777 APP-CORE/dados
-- Alterou deny_list.py ........... pare (Ctrl+C) e rode o PASSO 5 de novo
+- Painel: "Sem conexao com o Elasticsearch" / indicador vermelho
+      .......................... confira: docker compose ps (na pasta
+      ELASTICSEARCH) e curl http://localhost:9200
+- Painel mostra "Elasticsearch respondeu 4xx/5xx" ao gravar
+      .......................... veja o erro com: docker logs elasticsearch
+- Alterou deny_list.py ........... pare (Ctrl+C) e rode o PASSO 6 de novo
 - Alterou index.html ............. so dar F5 no navegador
-- Nao aparece incidente .......... confira o IP em "IPs monitorados"
-      e se o log foi criado: curl "http://localhost:9200/logs-firewall/_count"
+- Nao aparece incidente .......... confira o IP em "IPs monitorados",
+      se o log existe no Datasource e se o detector esta rodando
+      (PASSO 6). Contagem: curl "http://localhost:9200/logs-firewall/_count"
 =====================================================================
